@@ -4,17 +4,17 @@
 \alias{calculatePosterior}
 \title{calculatePosterior}
 \usage{
-calculatePosterior(simulateVIPResults, p = 0.5, q = 0.5,
+calculatePosterior(simulatedVIPResults, p = 0.5, q = 0.5,
   attachResults = TRUE)
 }
 \arguments{
-\item{simulateVIPResults}{output of simulateVIP}
+\item{simulatedVIPResults}{output of \code{posteriorPLSRReconstruction} function}
 
 \item{p}{prior probability of an edge given an edge in the input network}
 
 \item{q}{prior probability of an edge given a non-edge in the input network}
 
-\item{attachResults}{if \code{TRUE}, add/replace the \code{posterior} column of \code{simulateVIPResults} with the computed posterior probabilities}
+\item{attachResults}{if \code{TRUE}, add/replace the \code{posterior} column of \code{simulatedVIPResults} with the computed posterior probabilities}
 }
 \value{
 a data frame with the computed posterior probablities attached, or a vector of posterior probabilities

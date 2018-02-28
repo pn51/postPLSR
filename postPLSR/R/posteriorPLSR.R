@@ -168,8 +168,9 @@ library(pls)
 #' @param q prior probability of an edge given a non-edge in the input network
 #' @param cores number of cores for parallelization
 #' @import parallel
+#' @import dplyr
 #' @return a data frame containing the data-derived VIP scores, estimated number of null VIP scores that are less than the data-derived score in the edge and non-edge cases, and (optionally) posterior edge probabilities for each ordered pair of genes.
-.simulateVIP <- function(calculatedVIP, adjMatrix, trueAdjMatrix=adjMatrix,
+.simulateVIP <- function(calculatedVIP, adjMatrix, 
                          components=3, loops=FALSE,
                          type='expr',  timepoints=10, iterations=1000,
                          mu=1, sigmaX=0.1, sigmaW=0.1, sigmaE=0.1,
@@ -200,11 +201,9 @@ library(pls)
          .plsrReconstruction(xData, yData, components, loops) <= calculatedVIP)
   })
   df <- Reduce('+', df) / iterations
-  df <- data.frame(edgeNumber = seq(m^2), edge = c(adjMatrix),
-                   vip = c(calculatedVIP), originalFraction = c(df))
-  if (is.matrix(trueAdjMatrix) && (dim(adjMatrix) == dim(trueAdjMatrix))) {
-    df$trueEdge <- c(trueAdjMatrix)
-  }
+  df <- data.frame(edgeNumber = seq(m^2), edge = c(adjMatrix), 
+                source = rep(rownames(adjMatrix), ncol(adjMatrix)), target = rep(colnames(adjMatrix), each=nrow(adjMatrix)),
+                vip = c(calculatedVIP), pVgOrig = c(df))
 
   if (!loops) {
     df <- subset(df, !(edgeNumber %in% (1 + (m + 1)*seq(0, m - 1))))
@@ -213,7 +212,7 @@ library(pls)
   ###############
 
   # now iterate through the edges, swap the edge type, and calcuate for just that edge
-  df$swappedFraction <- unlist(parallel::mclapply(df$edgeNumber, mc.cores = cores, FUN = function(ii) {
+  df$pVgSwap <- unlist(parallel::mclapply(df$edgeNumber, mc.cores = cores, FUN = function(ii) {
     curEdge <- adjMatrix[ii]
     adjMatrix[ii] <- !curEdge
     coefMatrix <- t(adjMatrix)
@@ -235,6 +234,8 @@ library(pls)
 
   }))
 
+  df <- dplyr::select(df, edgeNumber, source, target, edge, vip, pVgOrig, pVgSwap)
+
   # calculate the posterior probability
   if (calcPosterior) {
     calculatePosterior(df, p, q, TRUE)
@@ -246,62 +247,65 @@ library(pls)
 
 #' @title calculatePosterior
 #' @description Computes posterior edge probabilities from the simulation results
-#' @param simulateVIPResults output of simulateVIP
+#' @param simulatedVIPResults output of \code{posteriorPLSRReconstruction} function
 #' @param p prior probability of an edge given an edge in the input network
 #' @param q prior probability of an edge given a non-edge in the input network
-#' @param attachResults if \code{TRUE}, add/replace the \code{posterior} column of \code{simulateVIPResults} with the computed posterior probabilities
+#' @param attachResults if \code{TRUE}, add/replace the \code{posterior} column of \code{simulatedVIPResults} with the computed posterior probabilities
 #' @return a data frame with the computed posterior probablities attached, or a vector of posterior probabilities
 #' @export
-calculatePosterior <- function(simulateVIPResults, p=0.5, q=0.5, attachResults=TRUE) {
+calculatePosterior <- function(simulatedVIPResults, p=0.5, q=0.5, attachResults=TRUE) {
 
-  edgeInd <- simulateVIPResults$edge > 0
+  edgeInd <- simulatedVIPResults$edge > 0
   nonEdgeInd <- !edgeInd
 
   posterior <- rep(0,length(edgeInd))
 
-  posterior[edgeInd] <- simulateVIPResults$originalFraction[edgeInd] * p /
-    (simulateVIPResults$originalFraction[edgeInd] * p +
-       (1 - simulateVIPResults$swappedFraction[edgeInd]) * (1 - p))
-  posterior[nonEdgeInd] <- simulateVIPResults$swappedFraction[nonEdgeInd] * q /
-    (simulateVIPResults$swappedFraction[nonEdgeInd] * q +
-       (1 - simulateVIPResults$originalFraction[nonEdgeInd]) * (1 - q))
+  posterior[edgeInd] <- simulatedVIPResults$pVgOrig[edgeInd] * p /
+    (simulatedVIPResults$pVgOrig[edgeInd] * p +
+       (1 - simulatedVIPResults$pVgSwap[edgeInd]) * (1 - p))
+  posterior[nonEdgeInd] <- simulatedVIPResults$pVgSwap[nonEdgeInd] * q /
+    (simulatedVIPResults$pVgSwap[nonEdgeInd] * q +
+       (1 - simulatedVIPResults$pVgOrig[nonEdgeInd]) * (1 - q))
 
   posterior[edgeInd & is.na(posterior)] <- p
   posterior[nonEdgeInd & is.na(posterior)] <- q
 
   if (attachResults) {
-    simulateVIPResults$posterior <- posterior
-    simulateVIPResults
+    simulatedVIPResults$posterior <- posterior
+    simulatedVIPResults
   } else{
     posterior
   }
 }
 
-
-##Returns the AUC for the input network or true network
-#posteriorRes: output of simulateVIP with calculatePosterior==TRUE, or output of
-#calculatePosterior with attachResults=TRUE
-#loops: if FALSE, exclude loops (if any were computed) from the AUC calculation
-#useTrueEdge: if
 #' @title posteriorAUC
 #' @description Computes an AUC for the posterior edge probabilities
-#' @param posteriorRes output of \code{simulateVIP} function
+#' @param posteriorRes output of \code{posteriorPLSRReconstruction} or \code{calculatePosterior} function with \code{attachResults=TRUE}
 #' @param loops if \code{FALSE}, exclude loops (if any were computed) from the AUC calculation
 #' @param useTrueEdge if \code{TRUE} and the an additional adjacency matrix was supplied to \code{simulateVIP}, compute the AUC based on this matrix; otherwise, compute based on the prior network
+#' @param trueAdjMatrix true adjacency matrix
 #' @import pracma
 #' @return an AUC value
 #' @export
-posteriorAUC <- function(posteriorRes, loops=FALSE, useTrueEdge=FALSE) {
+posteriorAUC <- function(posteriorRes, loops=FALSE, useTrueEdge=FALSE, trueAdjMatrix=NULL) {
 
   # sort posterior probabities in descending order for the ROC curve
   posteriorRes <- posteriorRes[order(posteriorRes$posterior, decreasing = TRUE), ]
 
+  m <- ceiling(sqrt(nrow(posteriorRes)))
   if (loops) {
-    m <- ceiling(sqrt(nrow(posteriorRes)))
     posteriorRes <- subset(posteriorRes, !(edgeNumber %in% (1 + (m + 1) * seq(0, m - 1))))
   }
 
   if (useTrueEdge) {
+    if(is.matrix(trueAdjMatrix) && nrow(trueAdjMatrix)==m && ncol(trueAdjMatrix)==m){
+      posteriorRes$trueEdge <- 0
+      for(ii in nrow(posteriorRes)){
+        posteriorRes$trueEdge[ii] <- trueAdjMatrix[posteriorRes$source[ii], posteriorRes$target[ii]]
+      }
+    } else{
+      print('Invalid true adj. matrix. Using original adj. matrix.')
+    }
     tpr <- cumsum(posteriorRes$trueEdge)
     fpr <- cumsum(!posteriorRes$trueEdge)
   } else{
@@ -427,11 +431,11 @@ posteriorPLSRReconstruction <- function(exprData, adjMatrix, type='expr', compon
   adjMatrix <- adjMatrix[colnames(exprData$yData), colnames(exprData$yData)]
 
   vipMatrix <- with(exprData, .plsrReconstruction(xData, yData, components))
-  simulateVIPResults <- .simulateVIP(vipMatrix, adjMatrix,
+  simulatedVIPResults <- .simulateVIP(vipMatrix, adjMatrix,
                                      components = components, type = type, timepoints = timepoints, iterations = iterations,
                                      mu = mu, sigmaX = sigmaX, sigmaW = sigmaW, sigmaE = sigmaE,
                                      calcPosterior = TRUE, p = p, q = q, cores = cores)
 
-  simulateVIPResults
+  simulatedVIPResults
 
 }

@@ -4,14 +4,17 @@
 \alias{posteriorAUC}
 \title{posteriorAUC}
 \usage{
-posteriorAUC(posteriorRes, loops = FALSE, useTrueEdge = FALSE)
+posteriorAUC(posteriorRes, loops = FALSE, useTrueEdge = FALSE,
+  trueAdjMatrix = NULL)
 }
 \arguments{
-\item{posteriorRes}{output of \code{simulateVIP} function}
+\item{posteriorRes}{output of \code{posteriorPLSRReconstruction} or \code{calculatePosterior} function with \code{attachResults=TRUE}}
 
 \item{loops}{if \code{FALSE}, exclude loops (if any were computed) from the AUC calculation}
 
 \item{useTrueEdge}{if \code{TRUE} and the an additional adjacency matrix was supplied to \code{simulateVIP}, compute the AUC based on this matrix; otherwise, compute based on the prior network}
+
+\item{trueAdjMatrix}{true adjacency matrix}
 }
 \value{
 an AUC value

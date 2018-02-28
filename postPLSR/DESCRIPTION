@@ -6,6 +6,6 @@ Title: PLS-VIP-based posterior edge probabilities
 Description: PLS-VIP-based posterior edge probabilities
 Author: Phan Nguyen
 Maintainer: Phan Nguyen <phan.nguyen@u.northwestern.edu>
-Imports: pls, R.utils, pracma, parallel
+Imports: pls, R.utils, pracma, parallel, dplyr
 Encoding: UTF-8
 RoxygenNote: 6.0.1
